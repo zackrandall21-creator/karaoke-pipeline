@@ -96,6 +96,13 @@
     .status.done { color: #4ade80; }
     .status.warn { color: #fbbf24; }
 
+    .timer {
+      margin-top: 0.4rem;
+      font-size: 0.78rem;
+      color: #555;
+      min-height: 1em;
+    }
+
     .download-link {
       display: none;
       margin-top: 1rem;
@@ -123,15 +130,15 @@
 </head>
 <body>
   <div class="card">
-    <h1>🎤 Karaoke Generator</h1>
+    <h1>&#127908; Karaoke Generator</h1>
     <p class="subtitle">Upload an MP3 and get a karaoke video with word-sync highlighting.</p>
 
     <form id="uploadForm">
       <div class="drop-zone" id="dropZone">
         <input type="file" id="fileInput" accept=".mp3,audio/mpeg" />
-        <div class="drop-icon">🎵</div>
+        <div class="drop-icon">&#127925;</div>
         <div class="drop-label">Drop an MP3 here or click to browse</div>
-        <div class="drop-hint">MP3 only · max 100 MB</div>
+        <div class="drop-hint">MP3 only &middot; max 100 MB</div>
         <div class="file-name" id="fileName"></div>
       </div>
 
@@ -143,23 +150,27 @@
     </div>
 
     <p class="status" id="statusEl"></p>
-    <a class="download-link" id="downloadLink" href="#">⬇ Download Karaoke Video</a>
+    <p class="timer" id="timerEl"></p>
+    <a class="download-link" id="downloadLink" href="#">&#8595; Download Karaoke Video</a>
 
     <p class="debug-note">Having issues? Check <a href="/api/debug" target="_blank">/api/debug</a></p>
   </div>
 
   <script>
-    const form       = document.getElementById('uploadForm');
-    const fileInput  = document.getElementById('fileInput');
-    const dropZone   = document.getElementById('dropZone');
-    const fileName   = document.getElementById('fileName');
-    const submitBtn  = document.getElementById('submitBtn');
+    const form         = document.getElementById('uploadForm');
+    const fileInput    = document.getElementById('fileInput');
+    const dropZone     = document.getElementById('dropZone');
+    const fileName     = document.getElementById('fileName');
+    const submitBtn    = document.getElementById('submitBtn');
     const progressWrap = document.getElementById('progressWrap');
     const progressBar  = document.getElementById('progressBar');
-    const statusEl   = document.getElementById('statusEl');
+    const statusEl     = document.getElementById('statusEl');
+    const timerEl      = document.getElementById('timerEl');
     const downloadLink = document.getElementById('downloadLink');
+
     let selectedFile = null;
     let pollInterval = null;
+    let pollStart    = null;
 
     // Drag-and-drop
     dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
@@ -182,11 +193,20 @@
       submitBtn.disabled = false;
       downloadLink.classList.remove('visible');
       showStatus('', '');
+      timerEl.textContent = '';
     }
 
     function showStatus(type, msg) {
       statusEl.className = 'status' + (type ? ' ' + type : '');
       statusEl.textContent = msg;
+    }
+
+    function elapsed() {
+      if (!pollStart) return '';
+      const s = Math.floor((Date.now() - pollStart) / 1000);
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return m > 0 ? `${m}m ${sec}s elapsed` : `${sec}s elapsed`;
     }
 
     form.addEventListener('submit', async e => {
@@ -197,7 +217,8 @@
       downloadLink.classList.remove('visible');
       progressWrap.classList.add('visible');
       progressBar.style.width = '10%';
-      showStatus('polling', 'Uploading…');
+      showStatus('polling', 'Uploading\u2026');
+      timerEl.textContent = '';
 
       const formData = new FormData();
       formData.append('audio', selectedFile);
@@ -229,26 +250,37 @@
 
       progressBar.style.width = '50%';
 
-      // Warn if Kaggle trigger failed but still poll (manual requeue possible)
       if (data.kaggleError) {
-        showStatus('warn', '⚠ File uploaded, but processing trigger failed: ' + data.kaggleError + '. Contact support.');
+        showStatus('warn', '&#9888; File uploaded, but processing trigger failed: ' + data.kaggleError);
+        timerEl.textContent = 'Check /api/debug for credential status.';
         submitBtn.disabled = false;
         return;
       }
 
-      showStatus('polling', '✓ Uploaded! Processing… this takes a few minutes.');
+      showStatus('polling', '&#10003; Uploaded! Processing your track\u2026');
+      timerEl.textContent = 'This usually takes 15\u201330 minutes on Kaggle\'s free GPU.';
       startPolling(data.jobId);
     });
 
     function startPolling(jobId) {
+      pollStart = Date.now();
+      // 45 min @ 10s intervals = 270 attempts
+      const MAX_ATTEMPTS = 270;
       let attempts = 0;
-      const MAX_ATTEMPTS = 60; // 5 min @ 5s intervals
+
+      // Update elapsed timer every second
+      const clockInterval = setInterval(() => {
+        if (pollStart) timerEl.textContent = elapsed() + ' \u2014 this usually takes 15\u201330 min.';
+      }, 1000);
 
       pollInterval = setInterval(async () => {
         attempts++;
+
         if (attempts > MAX_ATTEMPTS) {
           clearInterval(pollInterval);
-          showStatus('error', 'Timed out — processing is taking too long. Please try again.');
+          clearInterval(clockInterval);
+          showStatus('error', 'Timed out after 45 minutes. The Kaggle job may still be running \u2014 check kaggle.com/zackrandall for kernel status.');
+          timerEl.textContent = '';
           submitBtn.disabled = false;
           return;
         }
@@ -257,25 +289,30 @@
           const res = await fetch('/api/status?jobId=' + jobId);
           const job = await res.json();
 
-          const pct = 50 + Math.min(attempts / MAX_ATTEMPTS * 45, 45);
+          // Progress bar creeps forward slowly while waiting
+          const pct = 50 + Math.min(attempts / MAX_ATTEMPTS * 48, 48);
           progressBar.style.width = pct + '%';
 
           if (job.status === 'done' && job.outputUrl) {
             clearInterval(pollInterval);
+            clearInterval(clockInterval);
             progressBar.style.width = '100%';
-            showStatus('done', '🎉 Your karaoke video is ready!');
+            showStatus('done', '&#127881; Your karaoke video is ready!');
+            timerEl.textContent = elapsed() + ' total.';
             downloadLink.href = job.outputUrl;
             downloadLink.classList.add('visible');
             submitBtn.disabled = false;
           } else if (job.status === 'error') {
             clearInterval(pollInterval);
+            clearInterval(clockInterval);
             showStatus('error', 'Processing failed: ' + (job.message || 'unknown error'));
+            timerEl.textContent = '';
             submitBtn.disabled = false;
           }
-        } catch (err) {
+        } catch (_) {
           // ignore transient polling errors
         }
-      }, 5000);
+      }, 10000); // poll every 10s (less noisy than 5s)
     }
   </script>
 </body>
