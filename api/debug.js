@@ -12,24 +12,28 @@ export default async function handler(req, res) {
   // Test Vercel Blob connectivity
   try {
     const { list } = await import('@vercel/blob');
-    const { blobs } = await list({ prefix: 'jobs/', limit: 1, token: process.env.BLOB_READ_WRITE_TOKEN });
-    results.blob = { ok: true, recentJobCount: blobs.length };
+    const { blobs } = await list({ prefix: 'jobs/', limit: 3, token: process.env.BLOB_READ_WRITE_TOKEN });
+    results.blob = { ok: true, recentJobs: blobs.map(b => b.pathname) };
   } catch (err) {
     results.blob = { ok: false, error: err.message };
   }
 
-  // Test Kaggle auth
+  // Test Kaggle auth by listing user kernels
   try {
     const username = process.env.KAGGLE_USERNAME;
     const key = process.env.KAGGLE_KEY;
     const authHeader = 'Basic ' + Buffer.from(`${username}:${key}`).toString('base64');
 
-    const kaggleRes = await fetch('https://www.kaggle.com/api/v1/kernels?userAuthenticationRequired=true&pageSize=1', {
-      headers: { 'Authorization': authHeader },
+    // Use a simple authenticated endpoint to validate credentials
+    const kaggleRes = await fetch('https://www.kaggle.com/api/v1/kernels/list?mine=true&pageSize=1', {
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json',
+      },
     });
 
-    const text = await kaggleRes.text();
     let parsed;
+    const text = await kaggleRes.text();
     try { parsed = JSON.parse(text); } catch { parsed = text.slice(0, 200); }
 
     results.kaggle = {
