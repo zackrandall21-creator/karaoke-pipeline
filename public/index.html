@@ -3,317 +3,163 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Karaoke Generator</title>
+  <title>Karaoke Pipeline</title>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: #0a0a0f;
-      color: #fff;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 2rem;
+      background: #0a0a0a; color: #eee;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
     }
-
     .card {
-      background: #13131a;
-      border: 1px solid #2a2a3a;
-      border-radius: 16px;
-      padding: 2.5rem;
-      width: 100%;
-      max-width: 520px;
+      background: #111; border: 1px solid #222; border-radius: 16px;
+      padding: 40px; max-width: 520px; width: 100%; text-align: center;
     }
-
-    h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 0.4rem; }
-    .subtitle { color: #888; font-size: 0.95rem; margin-bottom: 2rem; }
-
+    h1 { font-size: 1.8rem; margin-bottom: 8px; }
+    .sub { color: #888; font-size: 0.9rem; margin-bottom: 32px; }
     .drop-zone {
-      border: 2px dashed #2a2a3a;
-      border-radius: 12px;
-      padding: 2.5rem 1.5rem;
-      text-align: center;
-      cursor: pointer;
-      transition: border-color 0.2s, background 0.2s;
-      position: relative;
+      border: 2px dashed #333; border-radius: 12px;
+      padding: 48px 24px; cursor: pointer; transition: border-color 0.2s;
     }
-    .drop-zone:hover, .drop-zone.drag-over {
-      border-color: #6c63ff;
-      background: rgba(108,99,255,0.05);
+    .drop-zone:hover, .drop-zone.over { border-color: #ffd700; }
+    .drop-zone .icon { font-size: 2.5rem; margin-bottom: 12px; }
+    .drop-zone p { color: #888; font-size: 0.9rem; }
+    .drop-zone strong { color: #ffd700; }
+    #file-input { display: none; }
+    #progress-wrap { display: none; margin-top: 24px; }
+    #progress-bar-bg {
+      background: #222; border-radius: 8px; height: 8px; overflow: hidden;
     }
-    .drop-zone input[type=file] {
-      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    #progress-bar {
+      background: #ffd700; height: 100%; width: 0%; transition: width 0.3s;
     }
-    .drop-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
-    .drop-label { font-size: 1rem; color: #ccc; margin-bottom: 0.3rem; }
-    .drop-hint { font-size: 0.8rem; color: #555; }
-    .file-name { margin-top: 0.5rem; font-size: 0.85rem; color: #6c63ff; font-weight: 500; }
-
-    .btn {
-      display: block;
-      width: 100%;
-      margin-top: 1.25rem;
-      padding: 0.85rem;
-      background: #6c63ff;
-      color: #fff;
-      border: none;
-      border-radius: 10px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.2s, opacity 0.2s;
+    #status-msg { color: #aaa; font-size: 0.85rem; margin-top: 10px; }
+    #download-btn {
+      display: none; margin-top: 24px;
+      background: #ffd700; color: #000; border: none; border-radius: 8px;
+      padding: 12px 28px; font-size: 1rem; font-weight: 700;
+      cursor: pointer; text-decoration: none;
     }
-    .btn:hover:not(:disabled) { background: #574fd6; }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .progress-wrap {
-      margin-top: 1.25rem;
-      background: #1e1e2e;
-      border-radius: 8px;
-      height: 8px;
-      overflow: hidden;
-      display: none;
-    }
-    .progress-wrap.visible { display: block; }
-    .progress-bar {
-      height: 100%;
-      background: linear-gradient(90deg, #6c63ff, #a78bfa);
-      width: 0;
-      transition: width 0.4s ease;
-      border-radius: 8px;
-    }
-
-    .status {
-      margin-top: 1rem;
-      font-size: 0.9rem;
-      min-height: 1.2em;
-      line-height: 1.5;
-    }
-    .status.error { color: #ff6b6b; }
-    .status.polling { color: #a78bfa; }
-    .status.done { color: #4ade80; }
-    .status.warn { color: #fbbf24; }
-
-    .timer {
-      margin-top: 0.4rem;
-      font-size: 0.78rem;
-      color: #555;
-      min-height: 1em;
-    }
-
-    .download-link {
-      display: none;
-      margin-top: 1rem;
-      padding: 0.75rem;
-      background: #1a3a2a;
-      border: 1px solid #4ade80;
-      border-radius: 10px;
-      color: #4ade80;
-      text-align: center;
-      text-decoration: none;
-      font-weight: 600;
-      font-size: 0.95rem;
-    }
-    .download-link.visible { display: block; }
-    .download-link:hover { background: #1e4a32; }
-
-    .debug-note {
-      margin-top: 1.5rem;
-      font-size: 0.75rem;
-      color: #444;
-      text-align: center;
-    }
-    .debug-note a { color: #555; }
+    #error-msg { display: none; margin-top: 20px; color: #ff6b6b; font-size: 0.9rem; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <h1>&#127908; Karaoke Generator</h1>
-    <p class="subtitle">Upload an MP3 and get a karaoke video with word-sync highlighting.</p>
+<div class="card">
+  <h1>🎤 Karaoke Pipeline</h1>
+  <p class="sub">Upload an MP3 · Get a word-sync karaoke video</p>
 
-    <form id="uploadForm">
-      <div class="drop-zone" id="dropZone">
-        <input type="file" id="fileInput" accept=".mp3,audio/mpeg" />
-        <div class="drop-icon">&#127925;</div>
-        <div class="drop-label">Drop an MP3 here or click to browse</div>
-        <div class="drop-hint">MP3 only &middot; max 100 MB</div>
-        <div class="file-name" id="fileName"></div>
-      </div>
-
-      <button type="submit" class="btn" id="submitBtn" disabled>Generate Karaoke Video</button>
-    </form>
-
-    <div class="progress-wrap" id="progressWrap">
-      <div class="progress-bar" id="progressBar"></div>
-    </div>
-
-    <p class="status" id="statusEl"></p>
-    <p class="timer" id="timerEl"></p>
-    <a class="download-link" id="downloadLink" href="#">&#8595; Download Karaoke Video</a>
-
-    <p class="debug-note">Having issues? Check <a href="/api/debug" target="_blank">/api/debug</a></p>
+  <div class="drop-zone" id="drop-zone">
+    <div class="icon">🎵</div>
+    <p>Drop your MP3 here or <strong>click to browse</strong></p>
+    <p style="margin-top:6px;font-size:0.8rem">Up to 200 MB</p>
+    <input type="file" id="file-input" accept=".mp3,audio/mpeg" />
   </div>
 
-  <script>
-    const form         = document.getElementById('uploadForm');
-    const fileInput    = document.getElementById('fileInput');
-    const dropZone     = document.getElementById('dropZone');
-    const fileName     = document.getElementById('fileName');
-    const submitBtn    = document.getElementById('submitBtn');
-    const progressWrap = document.getElementById('progressWrap');
-    const progressBar  = document.getElementById('progressBar');
-    const statusEl     = document.getElementById('statusEl');
-    const timerEl      = document.getElementById('timerEl');
-    const downloadLink = document.getElementById('downloadLink');
+  <div id="progress-wrap">
+    <div id="progress-bar-bg"><div id="progress-bar"></div></div>
+    <div id="status-msg">Preparing upload…</div>
+  </div>
 
-    let selectedFile = null;
-    let pollInterval = null;
-    let pollStart    = null;
+  <a id="download-btn" href="#" download>⬇ Download Karaoke Video</a>
+  <div id="error-msg"></div>
+</div>
 
-    // Drag-and-drop
-    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-    dropZone.addEventListener('drop', e => {
-      e.preventDefault();
-      dropZone.classList.remove('drag-over');
-      const f = e.dataTransfer.files[0];
-      if (f && (f.type === 'audio/mpeg' || f.name.endsWith('.mp3'))) setFile(f);
-      else showStatus('error', 'Please drop an MP3 file.');
-    });
+<script type="module">
+  import { upload } from 'https://cdn.jsdelivr.net/npm/@vercel/blob@0.27.1/+esm';
 
-    fileInput.addEventListener('change', () => {
-      if (fileInput.files[0]) setFile(fileInput.files[0]);
-    });
+  const dropZone   = document.getElementById('drop-zone');
+  const fileInput  = document.getElementById('file-input');
+  const progressWrap = document.getElementById('progress-wrap');
+  const progressBar  = document.getElementById('progress-bar');
+  const statusMsg  = document.getElementById('status-msg');
+  const downloadBtn = document.getElementById('download-btn');
+  const errorMsg   = document.getElementById('error-msg');
 
-    function setFile(f) {
-      selectedFile = f;
-      fileName.textContent = f.name + ' (' + (f.size / 1024 / 1024).toFixed(1) + ' MB)';
-      submitBtn.disabled = false;
-      downloadLink.classList.remove('visible');
-      showStatus('', '');
-      timerEl.textContent = '';
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('over');
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  });
+
+  async function handleFile(file) {
+    if (!file.name.endsWith('.mp3') && !file.type.includes('audio')) {
+      showError('Please upload an MP3 file.'); return;
     }
+    dropZone.style.display = 'none';
+    progressWrap.style.display = 'block';
+    errorMsg.style.display = 'none';
 
-    function showStatus(type, msg) {
-      statusEl.className = 'status' + (type ? ' ' + type : '');
-      statusEl.textContent = msg;
+    try {
+      // 1. Upload directly to Vercel Blob (no size limit from Vercel function)
+      setStatus('Uploading…', 5);
+      const blob = await upload(file.name, file, {
+        access: 'public',
+        handleUploadUrl: '/api/upload',
+        onUploadProgress: ({ percentage }) => setStatus(`Uploading… ${percentage}%`, percentage * 0.7),
+      });
+
+      setStatus('Processing started — usually 15–25 min…', 75);
+
+      // 2. Trigger Kaggle kernel with the blob URL
+      const triggerRes = await fetch('/api/trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ blobUrl: blob.url, filename: file.name }),
+      });
+      const triggerData = await triggerRes.json();
+      if (!triggerRes.ok) throw new Error(triggerData.error || 'Trigger failed');
+
+      const { jobId } = triggerData;
+      setStatus('Processing… (check back in 15–25 min)', 80);
+      startPolling(jobId);
+
+    } catch (err) {
+      showError('Upload failed: ' + err.message);
     }
+  }
 
-    function elapsed() {
-      if (!pollStart) return '';
-      const s = Math.floor((Date.now() - pollStart) / 1000);
-      const m = Math.floor(s / 60);
-      const sec = s % 60;
-      return m > 0 ? `${m}m ${sec}s elapsed` : `${sec}s elapsed`;
-    }
+  function startPolling(jobId) {
+    let elapsed = 0;
+    const MAX = 30 * 60 * 1000;
+    const INTERVAL = 15000;
 
-    form.addEventListener('submit', async e => {
-      e.preventDefault();
-      if (!selectedFile) return;
-
-      submitBtn.disabled = true;
-      downloadLink.classList.remove('visible');
-      progressWrap.classList.add('visible');
-      progressBar.style.width = '10%';
-      showStatus('polling', 'Uploading\u2026');
-      timerEl.textContent = '';
-
-      const formData = new FormData();
-      formData.append('audio', selectedFile);
-
-      let data;
+    const timer = setInterval(async () => {
+      elapsed += INTERVAL;
+      if (elapsed >= MAX) {
+        clearInterval(timer);
+        showError('Processing timed out. The Kaggle job may still be running — check back later.');
+        return;
+      }
       try {
-        const res = await fetch('/api/upload', { method: 'POST', body: formData });
-        progressBar.style.width = '35%';
-
-        const body = await res.json().catch(() => null);
-
-        if (!res.ok) {
-          const msg = (body && body.error) ? body.error : `Upload failed (HTTP ${res.status})`;
-          throw new Error(msg);
+        const res = await fetch(`/api/status?jobId=${jobId}`);
+        const data = await res.json();
+        if (data.status === 'done' && data.outputUrl) {
+          clearInterval(timer);
+          setStatus('Done! Your karaoke video is ready.', 100);
+          downloadBtn.href = data.outputUrl;
+          downloadBtn.style.display = 'inline-block';
         }
+      } catch (_) {}
+    }, INTERVAL);
+  }
 
-        if (!body || !body.ok || !body.jobId) {
-          throw new Error((body && body.error) || 'Unexpected server response');
-        }
+  function setStatus(msg, pct) {
+    statusMsg.textContent = msg;
+    progressBar.style.width = pct + '%';
+  }
 
-        data = body;
-      } catch (err) {
-        progressBar.style.width = '0%';
-        progressWrap.classList.remove('visible');
-        showStatus('error', 'Error: ' + err.message);
-        submitBtn.disabled = false;
-        return;
-      }
-
-      progressBar.style.width = '50%';
-
-      if (data.kaggleError) {
-        showStatus('warn', '&#9888; File uploaded, but processing trigger failed: ' + data.kaggleError);
-        timerEl.textContent = 'Check /api/debug for credential status.';
-        submitBtn.disabled = false;
-        return;
-      }
-
-      showStatus('polling', '&#10003; Uploaded! Processing your track\u2026');
-      timerEl.textContent = 'This usually takes 15\u201330 minutes on Kaggle\'s free GPU.';
-      startPolling(data.jobId);
-    });
-
-    function startPolling(jobId) {
-      pollStart = Date.now();
-      // 45 min @ 10s intervals = 270 attempts
-      const MAX_ATTEMPTS = 270;
-      let attempts = 0;
-
-      // Update elapsed timer every second
-      const clockInterval = setInterval(() => {
-        if (pollStart) timerEl.textContent = elapsed() + ' \u2014 this usually takes 15\u201330 min.';
-      }, 1000);
-
-      pollInterval = setInterval(async () => {
-        attempts++;
-
-        if (attempts > MAX_ATTEMPTS) {
-          clearInterval(pollInterval);
-          clearInterval(clockInterval);
-          showStatus('error', 'Timed out after 45 minutes. The Kaggle job may still be running \u2014 check kaggle.com/zackrandall for kernel status.');
-          timerEl.textContent = '';
-          submitBtn.disabled = false;
-          return;
-        }
-
-        try {
-          const res = await fetch('/api/status?jobId=' + jobId);
-          const job = await res.json();
-
-          // Progress bar creeps forward slowly while waiting
-          const pct = 50 + Math.min(attempts / MAX_ATTEMPTS * 48, 48);
-          progressBar.style.width = pct + '%';
-
-          if (job.status === 'done' && job.outputUrl) {
-            clearInterval(pollInterval);
-            clearInterval(clockInterval);
-            progressBar.style.width = '100%';
-            showStatus('done', '&#127881; Your karaoke video is ready!');
-            timerEl.textContent = elapsed() + ' total.';
-            downloadLink.href = job.outputUrl;
-            downloadLink.classList.add('visible');
-            submitBtn.disabled = false;
-          } else if (job.status === 'error') {
-            clearInterval(pollInterval);
-            clearInterval(clockInterval);
-            showStatus('error', 'Processing failed: ' + (job.message || 'unknown error'));
-            timerEl.textContent = '';
-            submitBtn.disabled = false;
-          }
-        } catch (_) {
-          // ignore transient polling errors
-        }
-      }, 10000); // poll every 10s (less noisy than 5s)
-    }
-  </script>
+  function showError(msg) {
+    progressWrap.style.display = 'none';
+    dropZone.style.display = 'block';
+    errorMsg.style.display = 'block';
+    errorMsg.textContent = msg;
+  }
+</script>
 </body>
 </html>
