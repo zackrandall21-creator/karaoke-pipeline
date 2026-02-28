@@ -1,0 +1,10 @@
+{
+  "name": "karaoke-pipeline",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Karaoke video generator — upload an MP3, get a karaoke video",
+  "dependencies": {
+    "@paralleldrive/cuid2": "^2.2.2",
+    "formidable": "^3.5.1"
+  }
+}

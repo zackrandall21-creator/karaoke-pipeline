@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Karaoke Maker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0a0a0a;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+    p.subtitle {
+      color: #888;
+      margin-bottom: 40px;
+      font-size: 0.95rem;
+    }
+    .card {
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 16px;
+      padding: 36px;
+      width: 100%;
+      max-width: 480px;
+    }
+    .drop-zone {
+      border: 2px dashed #333;
+      border-radius: 12px;
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      margin-bottom: 24px;
+    }
+    .drop-zone.dragover {
+      border-color: #facc15;
+      background: rgba(250, 204, 21, 0.05);
+    }
+    .drop-zone.has-file {
+      border-color: #22c55e;
+      background: rgba(34, 197, 94, 0.05);
+    }
+    .drop-zone svg {
+      width: 40px;
+      height: 40px;
+      stroke: #555;
+      margin-bottom: 12px;
+    }
+    .drop-zone.has-file svg { stroke: #22c55e; }
+    .drop-zone p { color: #666; font-size: 0.9rem; }
+    .drop-zone .filename { color: #22c55e; font-weight: 600; font-size: 0.95rem; }
+    #fileInput { display: none; }
+    button#submitBtn {
+      width: 100%;
+      background: #facc15;
+      color: #000;
+      font-weight: 700;
+      font-size: 1rem;
+      border: none;
+      border-radius: 10px;
+      padding: 14px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    button#submitBtn:disabled { opacity: 0.35; cursor: not-allowed; }
+    button#submitBtn:hover:not(:disabled) { opacity: 0.9; }
+    .status {
+      margin-top: 24px;
+      font-size: 0.9rem;
+      text-align: center;
+      min-height: 24px;
+      color: #aaa;
+    }
+    .status.error { color: #f87171; }
+    .status.success { color: #4ade80; }
+    .progress-bar-wrap {
+      background: #222;
+      border-radius: 999px;
+      height: 6px;
+      margin-top: 16px;
+      overflow: hidden;
+      display: none;
+    }
+    .progress-bar-wrap.visible { display: block; }
+    .progress-bar {
+      height: 100%;
+      background: #facc15;
+      width: 0%;
+      transition: width 0.3s;
+      border-radius: 999px;
+    }
+    a#downloadLink {
+      display: none;
+      margin-top: 20px;
+      width: 100%;
+      background: #22c55e;
+      color: #000;
+      font-weight: 700;
+      font-size: 1rem;
+      border-radius: 10px;
+      padding: 14px;
+      text-align: center;
+      text-decoration: none;
+    }
+    a#downloadLink.visible { display: block; }
+  </style>
+</head>
+<body>
+  <h1>🎤 Karaoke Maker</h1>
+  <p class="subtitle">Upload an MP3 — get a karaoke video back</p>
+
+  <div class="card">
+    <div class="drop-zone" id="dropZone">
+      <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" xmlns="http://www.w3.org/2000/svg">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+      </svg>
+      <p id="dropLabel">Drag &amp; drop your MP3 here, or <u>click to browse</u></p>
+      <input type="file" id="fileInput" accept=".mp3,audio/mpeg" />
+    </div>
+
+    <button id="submitBtn" disabled>Make Karaoke</button>
+
+    <div class="progress-bar-wrap" id="progressWrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+
+    <div class="status" id="status"></div>
+    <a id="downloadLink" href="#">⬇ Download Karaoke Video</a>
+  </div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const submitBtn = document.getElementById('submitBtn');
+    const statusEl = document.getElementById('status');
+    const progressWrap = document.getElementById('progressWrap');
+    const progressBar = document.getElementById('progressBar');
+    const downloadLink = document.getElementById('downloadLink');
+    const dropLabel = document.getElementById('dropLabel');
+    let selectedFile = null;
+
+    dropZone.addEventListener('click', () => fileInput.click());
+
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('dragover');
+    });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      const file = e.dataTransfer.files[0];
+      if (file) setFile(file);
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) setFile(fileInput.files[0]);
+    });
+
+    function setFile(file) {
+      selectedFile = file;
+      dropZone.classList.add('has-file');
+      dropLabel.innerHTML = `<span class="filename">✓ ${file.name}</span><br><span style="color:#555;font-size:0.8rem">${(file.size / 1024 / 1024).toFixed(1)} MB</span>`;
+      submitBtn.disabled = false;
+      statusEl.textContent = '';
+      statusEl.className = 'status';
+      downloadLink.classList.remove('visible');
+    }
+
+    submitBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+      submitBtn.disabled = true;
+      statusEl.className = 'status';
+      statusEl.textContent = 'Uploading…';
+      progressWrap.classList.add('visible');
+      progressBar.style.width = '10%';
+      downloadLink.classList.remove('visible');
+
+      try {
+        const formData = new FormData();
+        formData.append('audio', selectedFile);
+
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+
+        progressBar.style.width = '40%';
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Upload failed' }));
+          throw new Error(err.error || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        progressBar.style.width = '100%';
+        statusEl.className = 'status success';
+        statusEl.textContent = `✓ Uploaded! Job ID: ${data.jobId}`;
+
+      } catch (err) {
+        progressBar.style.width = '0%';
+        progressWrap.classList.remove('visible');
+        statusEl.className = 'status error';
+        statusEl.textContent = `Error: ${err.message}`;
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
