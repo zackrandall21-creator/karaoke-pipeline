@@ -1,98 +1,52 @@
-// api/upload.js — Vercel serverless function
-// Receives MP3 via multipart/form-data, stores in Vercel Blob, triggers Kaggle.
-
-export const config = {
-  api: {
-    bodyParser: false,
-    sizeLimit: '100mb',
-  },
-};
-
-import { put } from '@vercel/blob';
+// api/upload.js — returns a Vercel Blob client-upload URL
+// Browser uploads directly to Blob (bypasses Vercel 4.5 MB body limit)
+import { handleUpload } from '@vercel/blob/client';
 import { createId } from '@paralleldrive/cuid2';
-import Busboy from 'busboy';
 
 export default async function handler(req, res) {
+  // CORS preflight
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'content-type, x-vercel-filename, x-vercel-content-type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    console.error('[upload] BLOB_READ_WRITE_TOKEN not set');
-    return res.status(500).json({ error: 'Storage not configured.' });
-  }
-
-  if (!process.env.KAGGLE_USERNAME || !process.env.KAGGLE_KEY) {
-    console.error('[upload] Kaggle credentials not set');
-    return res.status(500).json({ error: 'Processing not configured.' });
-  }
-
-  // Parse multipart with busboy
   const jobId = createId();
-  let fileBuffer = null;
-  let originalFilename = 'input.mp3';
-  let mimeType = 'audio/mpeg';
-  let fileSize = 0;
 
-  try {
-    await new Promise((resolve, reject) => {
-      const busboy = Busboy({
-        headers: req.headers,
-        limits: { fileSize: 100 * 1024 * 1024 }, // 100 MB
-      });
+  // Delegate to Vercel Blob client-upload handler
+  // This issues a signed URL the browser uses to PUT directly to Blob
+  const body = await handleUpload({
+    body: req.body,
+    request: req,
+    onBeforeGenerateToken: async (pathname) => {
+      return {
+        allowedContentTypes: ['audio/mpeg', 'audio/mp3', 'audio/x-mpeg'],
+        maximumSizeInBytes: 200 * 1024 * 1024, // 200 MB
+        tokenPayload: JSON.stringify({ jobId }),
+      };
+    },
+    onUploadCompleted: async ({ blob, tokenPayload }) => {
+      // Triggered server-side after browser finishes uploading
+      const { jobId } = JSON.parse(tokenPayload);
+      console.log(`[upload] Job ${jobId} — blob ready at ${blob.url}`);
+      // Trigger Kaggle kernel
+      await triggerKaggle(jobId, blob.url);
+    },
+  });
 
-      busboy.on('file', (fieldname, file, info) => {
-        const { filename, mimeType: mime } = info;
-        originalFilename = filename || 'input.mp3';
-        mimeType = mime || 'audio/mpeg';
+  return res.status(200).json(body);
+}
 
-        const chunks = [];
-        file.on('data', (chunk) => chunks.push(chunk));
-        file.on('end', () => {
-          fileBuffer = Buffer.concat(chunks);
-          fileSize = fileBuffer.length;
-        });
-        file.on('limit', () => reject(new Error('File too large (max 100 MB)')));
-      });
-
-      busboy.on('finish', resolve);
-      busboy.on('error', reject);
-      req.pipe(busboy);
-    });
-  } catch (err) {
-    console.error('[upload] Parse error:', err.message);
-    return res.status(400).json({ error: err.message || 'Failed to parse upload.' });
-  }
-
-  if (!fileBuffer || fileBuffer.length === 0) {
-    return res.status(400).json({ error: 'No audio file received. Field name must be "audio".' });
-  }
-
-  // Basic MIME/extension check
-  if (!mimeType.includes('audio') && !originalFilename.endsWith('.mp3')) {
-    return res.status(400).json({ error: 'Only MP3 files are supported.' });
-  }
-
-  // Upload to Vercel Blob (public so Kaggle can wget it)
-  let blobUrl;
-  try {
-    const blob = await put(`jobs/${jobId}/input.mp3`, fileBuffer, {
-      access: 'public',
-      contentType: 'audio/mpeg',
-      token: process.env.BLOB_READ_WRITE_TOKEN,
-    });
-    blobUrl = blob.url;
-  } catch (err) {
-    console.error('[upload] Blob upload error:', err);
-    return res.status(500).json({ error: 'Failed to store file. Please try again.' });
-  }
-
-  console.log(`[upload] Job ${jobId} — stored at ${blobUrl} (${(fileSize / 1024 / 1024).toFixed(1)} MB)`);
-
-  // Trigger Kaggle kernel push
+async function triggerKaggle(jobId, blobUrl) {
   const kaggleUsername = process.env.KAGGLE_USERNAME;
   const kaggleKey = process.env.KAGGLE_KEY;
-
+  if (!kaggleUsername || !kaggleKey) {
+    console.error('[upload] Kaggle credentials not set');
+    return;
+  }
   try {
     const kernelPushBody = {
       username: kaggleUsername,
@@ -108,48 +62,19 @@ export default async function handler(req, res) {
       title: 'karaoke-pipeline-runner',
       source_code: generateKernelScript(jobId, blobUrl),
     };
-
+    const auth = Buffer.from(`${kaggleUsername}:${kaggleKey}`).toString('base64');
     const kaggleRes = await fetch('https://www.kaggle.com/api/v1/kernels/push', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Basic ' + Buffer.from(`${kaggleUsername}:${kaggleKey}`).toString('base64'),
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${auth}` },
       body: JSON.stringify(kernelPushBody),
     });
-
-    const kaggleData = await kaggleRes.json();
-    console.log('[upload] Kaggle push response:', JSON.stringify(kaggleData));
-
-    if (!kaggleRes.ok) {
-      throw new Error(kaggleData.message || kaggleData.error || `Kaggle API ${kaggleRes.status}`);
-    }
-
+    const data = await kaggleRes.json();
+    console.log(`[upload] Kaggle push response:`, JSON.stringify(data));
+    if (!kaggleRes.ok) throw new Error(data.message || `Kaggle API ${kaggleRes.status}`);
     console.log(`[upload] Job ${jobId} — Kaggle kernel queued`);
   } catch (err) {
     console.error('[upload] Kaggle trigger error:', err.message);
-    // Don't fail the request — upload succeeded, note the error in response
-    return res.status(200).json({
-      ok: true,
-      jobId,
-      blobUrl,
-      filename: originalFilename,
-      sizeBytes: fileSize,
-      status: 'processing',
-      kaggleError: err.message,
-      message: 'File uploaded but Kaggle trigger failed: ' + err.message,
-    });
   }
-
-  return res.status(200).json({
-    ok: true,
-    jobId,
-    blobUrl,
-    filename: originalFilename,
-    sizeBytes: fileSize,
-    status: 'processing',
-    message: 'File uploaded. Karaoke processing started (usually 5–10 min).',
-  });
 }
 
 function generateKernelScript(jobId, blobUrl) {
