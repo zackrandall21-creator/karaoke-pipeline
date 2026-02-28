@@ -17,17 +17,8 @@
       min-height: 100vh;
       padding: 24px;
     }
-    h1 {
-      font-size: 2rem;
-      font-weight: 700;
-      margin-bottom: 8px;
-      letter-spacing: -0.5px;
-    }
-    p.subtitle {
-      color: #888;
-      margin-bottom: 40px;
-      font-size: 0.95rem;
-    }
+    h1 { font-size: 2rem; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.5px; }
+    p.subtitle { color: #888; margin-bottom: 40px; font-size: 0.95rem; }
     .card {
       background: #111;
       border: 1px solid #222;
@@ -45,20 +36,9 @@
       transition: border-color 0.2s, background 0.2s;
       margin-bottom: 24px;
     }
-    .drop-zone.dragover {
-      border-color: #facc15;
-      background: rgba(250, 204, 21, 0.05);
-    }
-    .drop-zone.has-file {
-      border-color: #22c55e;
-      background: rgba(34, 197, 94, 0.05);
-    }
-    .drop-zone svg {
-      width: 40px;
-      height: 40px;
-      stroke: #555;
-      margin-bottom: 12px;
-    }
+    .drop-zone.dragover { border-color: #facc15; background: rgba(250,204,21,0.05); }
+    .drop-zone.has-file  { border-color: #22c55e; background: rgba(34,197,94,0.05); }
+    .drop-zone svg { width: 40px; height: 40px; stroke: #555; margin-bottom: 12px; }
     .drop-zone.has-file svg { stroke: #22c55e; }
     .drop-zone p { color: #666; font-size: 0.9rem; }
     .drop-zone .filename { color: #22c55e; font-weight: 600; font-size: 0.95rem; }
@@ -77,15 +57,10 @@
     }
     button#submitBtn:disabled { opacity: 0.35; cursor: not-allowed; }
     button#submitBtn:hover:not(:disabled) { opacity: 0.9; }
-    .status {
-      margin-top: 24px;
-      font-size: 0.9rem;
-      text-align: center;
-      min-height: 24px;
-      color: #aaa;
-    }
-    .status.error { color: #f87171; }
+    .status { margin-top: 24px; font-size: 0.9rem; text-align: center; min-height: 24px; color: #aaa; }
+    .status.error   { color: #f87171; }
     .status.success { color: #4ade80; }
+    .status.polling { color: #facc15; }
     .progress-bar-wrap {
       background: #222;
       border-radius: 999px;
@@ -99,7 +74,7 @@
       height: 100%;
       background: #facc15;
       width: 0%;
-      transition: width 0.3s;
+      transition: width 0.4s;
       border-radius: 999px;
     }
     a#downloadLink {
@@ -138,46 +113,40 @@
     </div>
 
     <div class="status" id="status"></div>
-    <a id="downloadLink" href="#">⬇ Download Karaoke Video</a>
+    <a id="downloadLink" href="#" download>⬇ Download Karaoke Video</a>
   </div>
 
   <script>
-    const dropZone = document.getElementById('dropZone');
-    const fileInput = document.getElementById('fileInput');
-    const submitBtn = document.getElementById('submitBtn');
-    const statusEl = document.getElementById('status');
+    const dropZone    = document.getElementById('dropZone');
+    const fileInput   = document.getElementById('fileInput');
+    const submitBtn   = document.getElementById('submitBtn');
+    const statusEl    = document.getElementById('status');
     const progressWrap = document.getElementById('progressWrap');
-    const progressBar = document.getElementById('progressBar');
+    const progressBar  = document.getElementById('progressBar');
     const downloadLink = document.getElementById('downloadLink');
-    const dropLabel = document.getElementById('dropLabel');
+    const dropLabel    = document.getElementById('dropLabel');
     let selectedFile = null;
+    let pollInterval = null;
 
     dropZone.addEventListener('click', () => fileInput.click());
-
-    dropZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropZone.classList.add('dragover');
-    });
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
     dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
     dropZone.addEventListener('drop', (e) => {
       e.preventDefault();
       dropZone.classList.remove('dragover');
-      const file = e.dataTransfer.files[0];
-      if (file) setFile(file);
+      if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
     });
-
-    fileInput.addEventListener('change', () => {
-      if (fileInput.files[0]) setFile(fileInput.files[0]);
-    });
+    fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
 
     function setFile(file) {
       selectedFile = file;
       dropZone.classList.add('has-file');
-      dropLabel.innerHTML = `<span class="filename">✓ ${file.name}</span><br><span style="color:#555;font-size:0.8rem">${(file.size / 1024 / 1024).toFixed(1)} MB</span>`;
+      dropLabel.innerHTML = `<span class="filename">✓ ${file.name}</span><br><span style="color:#555;font-size:0.8rem">${(file.size/1024/1024).toFixed(1)} MB</span>`;
       submitBtn.disabled = false;
       statusEl.textContent = '';
       statusEl.className = 'status';
       downloadLink.classList.remove('visible');
+      if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
     }
 
     submitBtn.addEventListener('click', async () => {
@@ -193,12 +162,8 @@
         const formData = new FormData();
         formData.append('audio', selectedFile);
 
-        const res = await fetch('/api/upload', {
-          method: 'POST',
-          body: formData,
-        });
-
-        progressBar.style.width = '40%';
+        const res = await fetch('/api/upload', { method: 'POST', body: formData });
+        progressBar.style.width = '35%';
 
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: 'Upload failed' }));
@@ -206,9 +171,10 @@
         }
 
         const data = await res.json();
-        progressBar.style.width = '100%';
-        statusEl.className = 'status success';
-        statusEl.textContent = `✓ Uploaded! Job ID: ${data.jobId}`;
+        progressBar.style.width = '50%';
+        statusEl.className = 'status polling';
+        statusEl.textContent = '✓ Uploaded! Processing… this takes a few minutes.';
+        startPolling(data.jobId);
 
       } catch (err) {
         progressBar.style.width = '0%';
@@ -218,6 +184,45 @@
         submitBtn.disabled = false;
       }
     });
+
+    function startPolling(jobId) {
+      let attempts = 0;
+      const MAX_ATTEMPTS = 60; // 5 min @ 5s intervals
+
+      pollInterval = setInterval(async () => {
+        attempts++;
+        if (attempts > MAX_ATTEMPTS) {
+          clearInterval(pollInterval);
+          statusEl.className = 'status error';
+          statusEl.textContent = 'Timed out. Processing is taking too long — please try again.';
+          submitBtn.disabled = false;
+          return;
+        }
+
+        try {
+          const res = await fetch(`/api/status?jobId=${jobId}`);
+          const job = await res.json();
+
+          if (job.status === 'done' && job.outputUrl) {
+            clearInterval(pollInterval);
+            progressBar.style.width = '100%';
+            statusEl.className = 'status success';
+            statusEl.textContent = '🎉 Your karaoke video is ready!';
+            downloadLink.href = job.outputUrl;
+            downloadLink.classList.add('visible');
+          } else if (job.status === 'failed') {
+            clearInterval(pollInterval);
+            statusEl.className = 'status error';
+            statusEl.textContent = `Processing failed: ${job.message || 'Unknown error'}`;
+            submitBtn.disabled = false;
+          } else {
+            // Still processing — nudge the progress bar
+            const pct = Math.min(50 + attempts * 0.8, 92);
+            progressBar.style.width = pct + '%';
+          }
+        } catch (_) { /* network blip, keep polling */ }
+      }, 5000); // poll every 5 seconds
+    }
   </script>
 </body>
 </html>
