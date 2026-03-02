@@ -1,38 +1,27 @@
 #!/usr/bin/env python3
 """
-Karaoke Pipeline - Stage 2: Transcription + Forced Alignment (UPGRADED)
-========================================================================
+Karaoke Pipeline - Stage 2: Transcription + Forced Alignment (v5)
+================================================================
 Run in Kaggle Notebook after Stage 1.
 
-Upgraded pipeline:
-  1. whisper-large-v3 for best lyrics transcription accuracy
-     - Significant improvement over 'medium' on sung vocals
-     - ~10GB VRAM while loaded (T4 fits; unloaded before aligner)
-  2. ctc-forced-aligner (MMS-300M) for precise word boundary timing
-     - Replaces Whisper's internal word_timestamps for alignment
-     - Forces Whisper's text onto the clean vocal stem waveform
-     - Achieves ~10-50ms word boundary accuracy vs ~100-300ms from Whisper alone
-     - Uses Meta's MMS-300M model (HuggingFace: MahmoudAshraf/mms-300m-1130-forced-aligner)
-     - Only ~2GB VRAM — loaded AFTER Whisper is unloaded
+v5 changes:
+  - condition_on_previous_text=False: prevents hallucination loops on quiet passages
+  - no_speech_threshold=0.6: balanced sensitivity (was 1.0, too permissive)
+  - Transcribe from the FULL MIX (vocals + instruments) for better temporal grounding
+    but run ctc-forced-aligner on the clean VOCAL STEM for precise boundary alignment
+  - Vocal-only track kept for ctc alignment (cleaner signal for boundary detection)
 
-Whisper params tuned for karaoke accuracy (nomadkaraoke research):
-  - model=large-v3: best transcription for singing
-  - best_of=5: 5 hypotheses, picks best (conservative, not creative)
-  - temperature=0.2: low randomness
-  - no_speech_threshold=1: very permissive, catches every word
-  - enable_vad=True: Voice Activity Detection filters silence
-  - condition_on_previous_text=True: context-aware
+Alignment pipeline:
+  1. whisper-large-v3 on full mix → gets accurate lyrics text + rough timestamps
+  2. ctc-forced-aligner on clean vocal stem → replaces timestamps with precise boundaries
+     - ~10-50ms word boundary accuracy vs ~100-300ms from Whisper alone
+     - Especially important for held vowels (sustain notes)
 
-Usage:
-    1. Set VOCALS_WAV and optionally LYRICS_PROMPT below
-    2. Run after Stage 1 (needs vocals.wav)
-    3. Runtime > Run All
-
-Output:
+Outputs:
     /kaggle/working/output/transcription.json   - Full Whisper output
-    /kaggle/working/output/words.json            - Flat word list with ALIGNED timestamps
-    /kaggle/working/output/transcription.txt     - Human-readable preview
-    /kaggle/working/output/alignment_method.txt  - Which method was used
+    /kaggle/working/output/words.json           - Flat word list with ALIGNED timestamps
+    /kaggle/working/output/transcription.txt    - Human-readable preview
+    /kaggle/working/output/alignment_method.txt - Which method was used
 """
 
 import os
@@ -41,24 +30,25 @@ import subprocess
 import sys
 import gc
 
-# --- CONFIG -------------------------------------------------------------------
-VOCALS_WAV    = "/kaggle/working/output/vocals.wav"
+# --- CONFIG -------------------------------------------------------------------------
+VOCALS_WAV    = "/kaggle/working/output/vocals.wav"   # clean vocal stem (for CTC alignment)
+FULL_MIX_WAV  = "/kaggle/working/song.mp3"            # full mix (for Whisper transcription)
 OUTPUT_DIR    = "/kaggle/working/output"
 LYRICS_PROMPT = ""   # Optional: paste known lyrics here for better accuracy
-                      # Example: "I was born a coal miners daughter..."
-                      # Leave empty for blind transcription
-# ------------------------------------------------------------------------------
+                     # Example: "I was born a coal miners daughter..."
+                     # Leave empty for blind transcription
+# ------------------------------------------------------------------------------------
 
-# Whisper params tuned for karaoke (source: nomadkaraoke/python-lyrics-transcriber)
+# Whisper params tuned for karaoke (v5: hallucination-safe)
 WHISPER_PARAMS = {
-    "model":                       "large-v3",  # UPGRADED from medium
-    "word_timestamps":              True,
-    "temperature":                  0.2,
-    "best_of":                      5,
-    "compression_ratio_threshold":  2.8,
-    "no_speech_threshold":          1,          # Very permissive -- catches every word
-    "condition_on_previous_text":   True,
-    "enable_vad":                   True,
+    "model":                        "large-v3",  # UPGRADED from medium
+    "word_timestamps":               True,
+    "temperature":                   0.2,
+    "best_of":                       5,
+    "compression_ratio_threshold":   2.8,
+    "no_speech_threshold":           0.6,        # v5: was 1.0, lowered to avoid false positives
+    "condition_on_previous_text":    False,       # v5: CRITICAL - prevents hallucination loops
+    "enable_vad":                    True,
 }
 
 
@@ -73,9 +63,10 @@ def install_deps():
     )
 
 
-def transcribe_whisper(vocals_wav, prompt=""):
+def transcribe_whisper(audio_file, prompt=""):
     """
     Step 1: Transcribe with whisper-large-v3.
+    Uses the full mix (or vocals WAV if mix not available) for temporal grounding.
     Returns (words_list, raw_text) — timestamps are from Whisper internal
     alignment and will be replaced by ctc-forced-aligner in step 2.
     """
@@ -84,11 +75,11 @@ def transcribe_whisper(vocals_wav, prompt=""):
     print(f"Loading Whisper {WHISPER_PARAMS['model']}...")
     model = whisper.load_model(WHISPER_PARAMS["model"])
 
-    print(f"Transcribing: {vocals_wav}")
+    print(f"Transcribing: {audio_file}")
     if prompt:
         print(f"  Using lyrics prompt ({len(prompt)} chars)")
 
-    audio = whisper.load_audio(vocals_wav)
+    audio = whisper.load_audio(audio_file)
     result = whisper.transcribe(
         model,
         audio,
@@ -140,6 +131,8 @@ def align_with_ctc(vocals_wav, transcript_text, whisper_words):
     with acoustically-grounded boundaries — especially important for
     sung/held vowels which Whisper often timestamps too early/late.
 
+    Uses CLEAN VOCAL STEM (not full mix) for best alignment accuracy.
+
     Returns aligned word list with corrected start/end times.
     """
     try:
@@ -150,7 +143,7 @@ def align_with_ctc(vocals_wav, transcript_text, whisper_words):
             get_spans, postprocess_results,
         )
 
-        print("Running ctc-forced-aligner (MMS-300M)...")
+        print("Running ctc-forced-aligner (MMS-300M) on clean vocal stem...")
         device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"  Device: {device}")
 
@@ -241,10 +234,15 @@ if __name__ == "__main__":
     if not os.path.isfile(VOCALS_WAV):
         raise FileNotFoundError(f"Vocals not found: {VOCALS_WAV} -- run Stage 1 first")
 
-    # Step 1: Transcribe with Whisper large-v3
-    whisper_words, raw_text, full_result = transcribe_whisper(VOCALS_WAV, prompt=LYRICS_PROMPT)
+    # Use full mix for transcription if available, fall back to vocals-only
+    transcription_source = FULL_MIX_WAV if os.path.isfile(FULL_MIX_WAV) else VOCALS_WAV
+    print(f"Transcription source: {transcription_source}")
+    print(f"Alignment source:     {VOCALS_WAV} (clean vocals only)")
 
-    # Step 2: Refine word boundaries with ctc-forced-aligner
+    # Step 1: Transcribe with Whisper large-v3
+    whisper_words, raw_text, full_result = transcribe_whisper(transcription_source, prompt=LYRICS_PROMPT)
+
+    # Step 2: Refine word boundaries with ctc-forced-aligner (on clean vocals)
     aligned_words, alignment_method = align_with_ctc(VOCALS_WAV, raw_text, whisper_words)
 
     # Save all outputs
